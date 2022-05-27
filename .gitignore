@@ -8,4 +8,4 @@ bin-int/
 *.vcxproj.filters
 
 # Exclude
-!vendor/bin
+#!vendor/bin
