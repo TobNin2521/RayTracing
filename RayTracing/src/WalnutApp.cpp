@@ -5,15 +5,33 @@
 #include "Walnut/Random.h"
 #include "Walnut/Timer.h"
 
+#include "../HitableList.h"
+#include "../Sphere.h"
+#include "../Camera.h"
+#include "../Lambertian.h"
+#include "../Metal.h"
+#include "../Dielectric.h"
+#include <float.h>
+#include <fstream>
+#include <stdlib.h>
+
 using namespace Walnut;
 
 class ExampleLayer : public Walnut::Layer
 {
 public:
+	Vec3 random_in_unit_sphere() {
+		Vec3 p;
+		int i = 0;
+		do {
+			p = 2 * Vec3(drand48(), drand48(), drand48()) - Vec3(1, 1, 1);
+		} while (p.squared_length() >= 1);
+		return p;
+	}
+	
 	virtual void OnUIRender() override
-	{
+	{		
 		ImGui::Begin("Settings");
-		ImGui::DockBuilderDockWindow("Settings", ImGui::GetActiveID());
 		ImGui::Text("Last render: %.3fms", m_LastRenderTime);
 		if (ImGui::Button("Render")) 
 		{
@@ -32,7 +50,61 @@ public:
 
 		ImGui::End();
 		ImGui::PopStyleVar();
-		Render();
+		//Render();
+	}
+
+	Vec3 color(const Ray& r, Hitable* world, int depth) {
+		HitRecord rec;
+		if (world->Hit(r, 0.001, FLT_MAX, rec)) {
+			Ray scattered;
+			Vec3 attenuation;
+			if (depth > 50 && rec.mat_ptr->Scatter(r, rec, attenuation, scattered)) {
+				return attenuation * color(scattered, world, depth + 1);
+			}
+			else {
+				return Vec3(0, 0, 0);
+			}
+		}
+		else {
+			Vec3 unit_direction = unit_vector(r.direction());
+			float t = 0.5 * (unit_direction.y() + 1.0);
+			return (1.0 - t) * Vec3(1.0, 1.0, 1.0) + t * Vec3(0.5, 0.7, 1.0);
+		}
+	}
+	uint32_t createRGBA(int r, int g, int b, int a)
+	{
+		return ((r & 0xff) << 24) + ((g & 0xff) << 16) + ((b & 0xff) << 8)
+			+ (a & 0xff);
+	}
+
+	Hitable* random_scene() {
+		int n = 500;
+		Hitable** list = new Hitable*[n + 1];
+		list[0] = new Sphere(Vec3(0, -1000, 0), 1000, new Lambertian(Vec3(0.5, 0.5, 0.5)));
+		int i = 1;
+		for (int a = -11; a < 11; a++) {
+			for (int b = -11; b < 11; b++) {
+				float choose_mat = drand48();
+				Vec3 center(a + 0.9 * drand48(), 0.2, b + 0.9 * drand48());
+				if ((center - Vec3(4, 0.2, 0)).length() > 0.9) {
+					if (choose_mat < 0.8) {
+						list[i++] = new Sphere(center, 0.2, new Lambertian(Vec3(drand48() * drand48(), drand48() * drand48(), drand48() * drand48())));
+					}
+					else if (choose_mat < 0.95) {
+						list[i++] = new Sphere(center, 0.2, new Metal(Vec3(0.5 * (1 + drand48()), 0.5 * (1 + drand48()), 0.5 * (1 + drand48())), 0.5 * drand48()));
+					}
+					else {
+						list[i++] = new Sphere(center, 0.2, new Dielectric(1.5));
+					}
+				}
+			}
+		}
+
+		list[i++] = new Sphere(Vec3(0, 1, 0), 1.0, new Dielectric(1.5));
+		list[i++] = new Sphere(Vec3(-4, 1, 0), 1.0, new Lambertian(Vec3(0.4, 0.2, 0.1)));
+		list[i++] = new Sphere(Vec3(4, 1, 0), 1.0, new Metal(Vec3(0.7, 0.6, 0.5), 0.0));
+
+		return new HitableList(list, i);
 	}
 
 	void Render()
@@ -46,11 +118,51 @@ public:
 			m_ImageData = new uint32_t[m_ViewportWidth * m_ViewportHeigth];
 		}
 
-		for (uint32_t i = 0; i < m_ViewportWidth * m_ViewportHeigth; i++)
+		int nx = m_ViewportWidth, ny = m_ViewportHeigth, index = 0, ns = 100;
+				
+		Hitable* world = random_scene();
+
+		Vec3 lookfrom(3, 3, 2);
+		Vec3 lookat(0, 0, -1);
+		float dist_to_focus = (lookfrom - lookat).length();
+		float aperture = 2;
+
+		Camera cam(lookfrom, lookat, Vec3(0, 1, 0), 20, float(nx)/float(ny), aperture, dist_to_focus);
+		
+		std::string content;
+
+		content = "P3\n" + std::to_string(nx) + " " + std::to_string(ny) + "\n255\n";
+
+		for (int j = ny - 1; j >= 0; j--)
 		{
-			m_ImageData[i] = Random::UInt();
-			m_ImageData[i] != 0xffff00ff;
+			for (int i = 0; i < nx; i++)
+			{
+				Vec3 col(0, 0, 0);
+				for (int s = 0; s < ns; s++) {
+					float u = float(i + Random::Float()) / float(nx);
+					float v = float(j + Random::Float()) / float(ny);
+					Ray r = cam.get_ray(u, v);
+					Vec3 p = r.point_at_parameter(2.0);
+					col += color(r, world, 0);
+				}
+				col /= float(ns);
+				col = Vec3(sqrt(col[0]), sqrt(col[1]), sqrt(col[2]));
+				int ir = int(255.99f * col[0]);
+				int ig = int(255.99f * col[1]);
+				int ib = int(255.99f * col[2]);
+
+
+				uint32_t c = createRGBA(ir, ig, ib, 0xff);
+				content += std::to_string(ir) + " " + std::to_string(ig) + " " + std::to_string(ib) + "\n";
+
+				m_ImageData[index] = c;
+				index++;
+			}
 		}
+
+		std::fstream file("image.ppm", std::ios_base::out);
+		file << content;
+		file.close();
 
 		m_Image->SetData(m_ImageData);
 
@@ -71,7 +183,8 @@ Walnut::Application* Walnut::CreateApplication(int argc, char** argv)
 	spec.Name = "Ray Tracing";
 	spec.ChildBg = { 44, 43, 56, 255 };
 	spec.ParentBg = { 44, 43, 65, 255 };
-	spec.icon = "C:\\Users\\i0006683\\Documents\\Projects\\RayTracing\\bin\\Debug-windows-x86_64\\RayTracing\\icon.png";
+	spec.Icon = "C:\\Users\\i0006683\\Documents\\Projects\\RayTracing\\bin\\Debug-windows-x86_64\\RayTracing\\icon.png";
+	srand(time(NULL));
 
 	Walnut::Application* app = new Walnut::Application(spec);
 	app->PushLayer<ExampleLayer>();
