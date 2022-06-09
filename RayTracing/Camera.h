@@ -1,13 +1,14 @@
 #ifndef CAMERAH
 #define CAMERAH
 
+#include "Random.h"
 #include "Ray.h"
 
 Vec3 random_unit_in_disk() {
 	Vec3 p;
 	do {
-		p = 2 * Vec3(drand48(), drand48(), 0) - Vec3(1, 1, 0);
-	} while (dot(p, p) >= 1);
+		p = 2 * Vec3(random_double(), random_double(), 0) - Vec3(1, 1, 0);
+	} while ((p.length() * p.length()) >= 1);
 	return p;
 }
 
@@ -30,7 +31,7 @@ public:
 	}
 	Ray get_ray(float s, float t) { 
 		Vec3 rd = lens_radius * random_unit_in_disk();
-		Vec3 offset = u * rd.x() - v * rd.y();
+		Vec3 offset = u * rd.x() + v * rd.y();
 		return Ray(origin + offset, lower_left_corner + s * horizontal + t * vertical - origin - offset); 
 	}
 	Vec3 origin;

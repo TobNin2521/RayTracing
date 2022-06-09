@@ -5,12 +5,11 @@
 #include "Walnut/Random.h"
 #include "Walnut/Timer.h"
 
-#include "../HitableList.h"
-#include "../Sphere.h"
 #include "../Camera.h"
-#include "../Lambertian.h"
-#include "../Metal.h"
-#include "../Dielectric.h"
+#include "../HitableList.h"
+#include "../Material.h"
+#include "../Random.h"
+#include "../Sphere.h"
 #include <float.h>
 #include <fstream>
 #include <stdlib.h>
@@ -19,16 +18,7 @@ using namespace Walnut;
 
 class ExampleLayer : public Walnut::Layer
 {
-public:
-	Vec3 random_in_unit_sphere() {
-		Vec3 p;
-		int i = 0;
-		do {
-			p = 2 * Vec3(drand48(), drand48(), drand48()) - Vec3(1, 1, 1);
-		} while (p.squared_length() >= 1);
-		return p;
-	}
-	
+public:	
 	virtual void OnUIRender() override
 	{		
 		ImGui::Begin("Settings");
@@ -58,7 +48,7 @@ public:
 		if (world->Hit(r, 0.001, FLT_MAX, rec)) {
 			Ray scattered;
 			Vec3 attenuation;
-			if (depth > 50 && rec.mat_ptr->Scatter(r, rec, attenuation, scattered)) {
+			if (depth < 8 && rec.mat_ptr->Scatter(r, rec, attenuation, scattered)) {
 				return attenuation * color(scattered, world, depth + 1);
 			}
 			else {
@@ -82,16 +72,20 @@ public:
 		Hitable** list = new Hitable*[n + 1];
 		list[0] = new Sphere(Vec3(0, -1000, 0), 1000, new Lambertian(Vec3(0.5, 0.5, 0.5)));
 		int i = 1;
-		for (int a = -11; a < 11; a++) {
-			for (int b = -11; b < 11; b++) {
-				float choose_mat = drand48();
-				Vec3 center(a + 0.9 * drand48(), 0.2, b + 0.9 * drand48());
+		for (int a = -8; a < 8; a++) {
+			for (int b = -8; b < 8; b++) {
+				float choose_mat = random_double();
+				Vec3 center(a + 0.9 * random_double(), 0.2, b + 0.9 * random_double());
 				if ((center - Vec3(4, 0.2, 0)).length() > 0.9) {
 					if (choose_mat < 0.8) {
-						list[i++] = new Sphere(center, 0.2, new Lambertian(Vec3(drand48() * drand48(), drand48() * drand48(), drand48() * drand48())));
+						list[i++] = new Sphere(center, 0.2, new Lambertian(Vec3(random_double() * random_double(), 
+							random_double() * random_double(), random_double() * random_double())));
 					}
 					else if (choose_mat < 0.95) {
-						list[i++] = new Sphere(center, 0.2, new Metal(Vec3(0.5 * (1 + drand48()), 0.5 * (1 + drand48()), 0.5 * (1 + drand48())), 0.5 * drand48()));
+						list[i++] = new Sphere(center, 0.2, new Metal(Vec3(0.5 * (1 + random_double()), 
+							0.5 * (1 + random_double()), 
+							0.5 * (1 + random_double())), 
+							0.5 * random_double()));
 					}
 					else {
 						list[i++] = new Sphere(center, 0.2, new Dielectric(1.5));
@@ -110,7 +104,8 @@ public:
 	void Render()
 	{
 		Timer timer;
-
+		m_ViewportWidth = 800;
+		m_ViewportHeigth = 480;
 		if (!m_Image || m_ViewportWidth != m_Image->GetWidth() || m_ViewportHeigth != m_Image->GetHeight())
 		{
 			m_Image = std::make_shared<Image>(m_ViewportWidth, m_ViewportHeigth, ImageFormat::RGBA);
@@ -118,14 +113,14 @@ public:
 			m_ImageData = new uint32_t[m_ViewportWidth * m_ViewportHeigth];
 		}
 
-		int nx = m_ViewportWidth, ny = m_ViewportHeigth, index = 0, ns = 100;
+		int nx = m_ViewportWidth, ny = m_ViewportHeigth, index = 0, ns = 20;
 				
 		Hitable* world = random_scene();
 
-		Vec3 lookfrom(3, 3, 2);
-		Vec3 lookat(0, 0, -1);
-		float dist_to_focus = (lookfrom - lookat).length();
-		float aperture = 2;
+		Vec3 lookfrom(13, 2, 3);
+		Vec3 lookat(0, 0, 0);
+		float dist_to_focus = 10;
+		float aperture = 0.1;
 
 		Camera cam(lookfrom, lookat, Vec3(0, 1, 0), 20, float(nx)/float(ny), aperture, dist_to_focus);
 		
@@ -135,14 +130,14 @@ public:
 
 		for (int j = ny - 1; j >= 0; j--)
 		{
+			std::cerr << "\rScanlines remaining: " << j << ' ' << std::flush;
 			for (int i = 0; i < nx; i++)
 			{
 				Vec3 col(0, 0, 0);
 				for (int s = 0; s < ns; s++) {
-					float u = float(i + Random::Float()) / float(nx);
-					float v = float(j + Random::Float()) / float(ny);
+					float u = float(i + random_double()) / float(nx);
+					float v = float(j + random_double()) / float(ny);
 					Ray r = cam.get_ray(u, v);
-					Vec3 p = r.point_at_parameter(2.0);
 					col += color(r, world, 0);
 				}
 				col /= float(ns);
@@ -181,9 +176,9 @@ Walnut::Application* Walnut::CreateApplication(int argc, char** argv)
 {
 	Walnut::ApplicationSpecification spec;
 	spec.Name = "Ray Tracing";
-	spec.ChildBg = { 44, 43, 56, 255 };
-	spec.ParentBg = { 44, 43, 65, 255 };
-	spec.Icon = "C:\\Users\\i0006683\\Documents\\Projects\\RayTracing\\bin\\Debug-windows-x86_64\\RayTracing\\icon.png";
+	//spec.ChildBg = { 44, 43, 56, 255 };
+	//spec.ParentBg = { 44, 43, 65, 255 };
+	//spec.Icon = "C:\\Users\\i0006683\\Documents\\Projects\\RayTracing\\bin\\Debug-windows-x86_64\\RayTracing\\icon.png";
 	srand(time(NULL));
 
 	Walnut::Application* app = new Walnut::Application(spec);
